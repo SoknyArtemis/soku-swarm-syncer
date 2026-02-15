@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::ptr;
 use std::sync::Arc;
-use std::thread;
 
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND};
 use windows_sys::Win32::System::JobObjects::{
@@ -20,7 +19,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 fn main() {
-    // 使用更直接的方式初始化应用上下文
+    // 初始化应用上下文
     let app_context = ApplicationContext::new();
 
     // 检查游戏目录和文件是否存在
@@ -31,10 +30,10 @@ fn main() {
     // 创建作业对象用于进程管理
     let job_object = Arc::new(JobObjectManager::new());
 
-    // 并行启动辅助工具以提高速度
-    app_context.launch_helper_tools_parallel(&job_object);
+    // 启动辅助工具
+    app_context.launch_helper_tools(&job_object);
 
-    // 快速启动游戏并等待其结束
+    // 启动游戏并等待其结束
     app_context.run_game();
 }
 
@@ -42,6 +41,8 @@ struct ApplicationContext {
     base_dir: PathBuf,
     th123_dir: PathBuf,
     game_path: PathBuf,
+    swarm_path: PathBuf,
+    tsk_path: PathBuf,
 }
 
 impl ApplicationContext {
@@ -51,11 +52,15 @@ impl ApplicationContext {
 
         let th123_dir = base_dir.join("th123");
         let game_path = th123_dir.join("th123.exe");
+        let swarm_path = th123_dir.join("swarm.exe");
+        let tsk_path = th123_dir.join("tsk/tsk_110A/tsk_yamei.exe");
 
         Self {
             base_dir,
             th123_dir,
             game_path,
+            swarm_path,
+            tsk_path,
         }
     }
 
@@ -64,6 +69,8 @@ impl ApplicationContext {
         let required_paths = [
             (&self.th123_dir, "游戏目录"),
             (&self.game_path, "游戏文件"),
+            (&self.swarm_path, "Swarm 工具"),
+            (&self.tsk_path, "TSK 工具"),
         ];
 
         for (path, desc) in &required_paths {
@@ -76,66 +83,43 @@ impl ApplicationContext {
         true
     }
 
-    fn launch_helper_tools_parallel(&self, job_object: &Arc<JobObjectManager>) {
+    fn launch_helper_tools(&self, job_object: &Arc<JobObjectManager>) {
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NO_WINDOW: u32 = 0x00000200;
 
-        // 预先检查文件是否存在，避免重复的磁盘访问
-        let swarm_path = self.th123_dir.join("swarm.exe");
-        let tsk_path = self.th123_dir.join("tsk/tsk_110A/tsk_yamei.exe");
+        // 使用预计算的基础目录
+        let base_dir = &self.base_dir;
 
-        // 使用更快的异步方式启动进程，但减少不必要的延迟
-        let mut handles = vec![];
+        // 定义要启动的工具列表
+        let tools = [&self.swarm_path, &self.tsk_path];
 
-        if swarm_path.exists() {
-            let base_dir_clone = self.base_dir.clone();
-            let job_obj_clone = Arc::clone(job_object);
-            let handle = thread::spawn(move || {
-                if let Ok(child) = Command::new(&swarm_path)
-                    .current_dir(&base_dir_clone)
+        // 遍历并启动所有存在的工具
+        for tool_path in &tools {
+            if tool_path.exists() {
+                if let Ok(child) = Command::new(tool_path)
+                    .current_dir(base_dir)
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
                     .spawn()
                 {
-                    job_obj_clone.assign_process(child.as_raw_handle() as HANDLE);
+                    job_object.assign_process(child.as_raw_handle() as HANDLE);
                 }
-            });
-            handles.push(handle);
+            }
         }
-
-        if tsk_path.exists() {
-            let base_dir_clone = self.base_dir.clone();
-            let job_obj_clone = Arc::clone(job_object);
-            let handle = thread::spawn(move || {
-                if let Ok(child) = Command::new(&tsk_path)
-                    .current_dir(&base_dir_clone)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
-                    .spawn()
-                {
-                    job_obj_clone.assign_process(child.as_raw_handle() as HANDLE);
-                }
-            });
-            handles.push(handle);
-        }
-
-        // 不再使用固定延迟，而是快速继续执行主游戏启动
-        // std::thread::sleep(Duration::from_millis(10));
     }
     
 
     fn run_game(&self) {
         // 使用更高效的进程启动方式
-        // 启动游戏后立即返回，不等待游戏结束
-        if let Ok(_game_proc) = Command::new(&self.game_path)
+        // 启动游戏后等待游戏结束，以便作业对象能够管理工作进程
+        if let Ok(mut game_proc) = Command::new(&self.game_path)
             .current_dir(&self.th123_dir)
             .spawn()
         {
-            // 不等待游戏进程结束，直接返回
+            // 等待游戏进程结束，这样作业对象才能在游戏结束后继续存在一段时间以管理工作进程
+            let _ = game_proc.wait();
         }
     }
 }
