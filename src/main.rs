@@ -22,10 +22,7 @@ fn main() {
     let app_context = ApplicationContext::new();
     let job_object = Arc::new(JobObjectManager::new());
 
-    // 快速并行启动辅助工具
     app_context.launch_helper_tools(&job_object);
-
-    // 启动游戏主程序
     app_context.run_game_with_job_object(job_object);
 }
 
@@ -60,7 +57,6 @@ impl ApplicationContext {
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NO_WINDOW: u32 = 0x00000200;
 
-        // Swarm 启动逻辑
         if self.swarm_path.exists() {
             let job_obj = Arc::clone(job_object);
             let path = self.swarm_path.clone();
@@ -79,7 +75,6 @@ impl ApplicationContext {
             });
         }
 
-        // TSK 启动逻辑 (还原工作目录为 base_dir)
         if self.tsk_path.exists() {
             let job_obj = Arc::clone(job_object);
             let path = self.tsk_path.clone();
@@ -120,8 +115,6 @@ impl ApplicationContext {
     }
 }
 
-// --- 进程管理 (Job Object) ---
-
 struct JobObjectManager {
     handle: HANDLE,
 }
@@ -133,7 +126,8 @@ impl JobObjectManager {
     fn new() -> Self {
         let handle = unsafe {
             let h = CreateJobObjectW(ptr::null(), ptr::null());
-            if h != 0 {
+            // 适配 0.61.2：判断指针是否为空
+            if !h.is_null() {
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
                 info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 
@@ -150,7 +144,8 @@ impl JobObjectManager {
     }
 
     pub fn assign_process(&self, process_handle: HANDLE) {
-        if self.handle != 0 && process_handle != 0 {
+        // 适配 0.61.2：判断指针是否为空
+        if !self.handle.is_null() && !process_handle.is_null() {
             unsafe {
                 AssignProcessToJobObject(self.handle, process_handle);
             }
@@ -160,7 +155,7 @@ impl JobObjectManager {
 
 impl Drop for JobObjectManager {
     fn drop(&mut self) {
-        if self.handle != 0 {
+        if !self.handle.is_null() {
             unsafe { CloseHandle(self.handle); }
         }
     }
@@ -171,6 +166,7 @@ fn show_error_message(title: &str, message: &str) {
     let message_wide: Vec<u16> = std::ffi::OsStr::new(message).encode_wide().chain(Some(0)).collect();
 
     unsafe {
-        MessageBoxW(0, message_wide.as_ptr(), title_wide.as_ptr(), MB_OK | MB_ICONERROR);
+        // 适配 0.61.2：第一个参数 HWND 必须是空指针
+        MessageBoxW(ptr::null_mut(), message_wide.as_ptr(), title_wide.as_ptr(), MB_OK | MB_ICONERROR);
     }
 }

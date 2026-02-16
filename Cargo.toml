@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-windows-sys = { version = "0.52", features = [
+windows-sys = { version = "0.61.2", features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_Foundation",
@@ -15,11 +15,11 @@ windows-sys = { version = "0.52", features = [
 ] }
 
 [build-dependencies]
-embed-resource = "2.4"
+embed-resource = "3.0.6"
 
 [profile.release]
-opt-level = 3        # 最高性能优化（替代 'z' 以获得更好的性能）
-lto = "thin"         # 使用ThinLTO平衡编译时间和性能，减少首次加载时间
+opt-level = "z"      # 最高内存优化
+lto = true           # 启用全局 LTO
 codegen-units = 1    # 强制单线程编译，以获得最大的全局优化空间
 panic = 'abort'      # 抛弃异常回执，减少代码膨胀
 strip = true         # 自动从二进制文件中剥离符号信息
