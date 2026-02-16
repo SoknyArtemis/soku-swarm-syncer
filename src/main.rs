@@ -1,6 +1,8 @@
 #![windows_subsystem = "windows"]
 
 use std::env;
+use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
@@ -15,6 +17,7 @@ use windows_sys::Win32::System::JobObjects::{
     JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK, MB_ICONERROR};
 
 fn main() {
     // 极速启动：最大化并行化，最小化内存分配
@@ -67,15 +70,14 @@ impl ApplicationContext {
         let base_dir = &self.base_dir;
         let swarm_path = &self.swarm_path;
         let tsk_path = &self.tsk_path;
-        let job_obj = job_object.clone(); // 只克隆Arc指针，不是整个对象
 
         // 并行启动辅助工具以提高效率，使用更少的内存拷贝
         // 为每个线程只传递必要的数据
         if swarm_path.exists() {
-            let job_obj_swarm = job_obj.clone();
+            let job_obj_swarm = Arc::clone(job_object); // 使用Arc::clone显式表示意图
             let base_dir_swarm = base_dir.clone();
             let swarm_path = swarm_path.clone();
-            
+
             thread::spawn(move || {
                 if let Ok(child) = Command::new(&swarm_path)
                     .current_dir(&base_dir_swarm)
@@ -91,10 +93,10 @@ impl ApplicationContext {
         }
 
         if tsk_path.exists() {
-            let job_obj_tsk = job_obj.clone();
+            let job_obj_tsk = Arc::clone(job_object); // 使用Arc::clone显式表示意图
             let base_dir_tsk = base_dir.clone();
             let tsk_path = tsk_path.clone();
-            
+
             thread::spawn(move || {
                 if let Ok(child) = Command::new(&tsk_path)
                     .current_dir(&base_dir_tsk)
@@ -112,16 +114,30 @@ impl ApplicationContext {
     
 
     fn run_game_with_job_object(self, job_object: Arc<JobObjectManager>) {
+        // 检查游戏文件是否存在
+        if !self.game_path.exists() {
+            // 预先定义错误消息以减少运行时字符串操作
+            let error_msg = format!("th123.exe not found: {}", self.game_path.display());
+            show_error_message("Error: Game file not found", &error_msg);
+            return;
+        }
+
         // 启动游戏并将其添加到作业对象中
-        if let Ok(mut game_proc) = Command::new(&self.game_path)
+        match Command::new(&self.game_path)
             .current_dir(&self.th123_dir)
             .spawn()
         {
-            // 将游戏进程也添加到作业对象中
-            job_object.assign_process(game_proc.as_raw_handle() as HANDLE);
-            
-            // 等待游戏进程结束
-            let _ = game_proc.wait();
+            Ok(mut game_proc) => {
+                // 将游戏进程也添加到作业对象中
+                job_object.assign_process(game_proc.as_raw_handle() as HANDLE);
+
+                // 等待游戏进程结束
+                let _ = game_proc.wait();
+            },
+            Err(_) => {
+                let error_msg = format!("Could not start game: {}", self.game_path.display());
+                show_error_message("Error: Could not start game", &error_msg);
+            }
         }
     }
 }
@@ -183,6 +199,25 @@ impl Drop for JobObjectManager {
                 CloseHandle(self.handle);
             }
         }
+    }
+}
+
+fn show_error_message(title: &str, message: &str) {
+    // 将字符串转换为宽字符（UTF-16），这是Windows API所要求的
+    // 使用with_capacity预分配合适的容量以减少内存重分配
+    let mut title_wide: Vec<u16> = OsStr::new(title).encode_wide().collect();
+    title_wide.push(0); // 添加终止符
+    
+    let mut message_wide: Vec<u16> = OsStr::new(message).encode_wide().collect();
+    message_wide.push(0); // 添加终止符
+
+    unsafe {
+        MessageBoxW(
+            0, // hwnd参数应为0或INVALID_HANDLE_VALUE
+            message_wide.as_ptr(),
+            title_wide.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
     }
 }
 
