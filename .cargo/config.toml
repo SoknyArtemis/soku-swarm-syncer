@@ -1,14 +1,12 @@
-# 使用 MSVC 目标和 Zig 作为链接器的高性能配置
-
 [target.x86_64-pc-windows-msvc]
 linker = "zig.exe"
 rustflags = [
-  "-C", "target-cpu=native",          # 针对当前CPU进行优化
-  "-C", "codegen-units=1",            # 最大化优化
-  "-C", "opt-level=3",                # 发布模式下使用最高优化级别
-  "-C", "panic=abort",                # 禁用展开机制以提高性能
+  "-C", "target-feature=+crt-static",  # 必须！静态链接 C 运行时，避免加载 DLL
+  "-C", "target-cpu=native",           # 针对本地 CPU 优化指令
   "-C", "link-arg=-target",
   "-C", "link-arg=x86_64-windows-msvc",
+  "-C", "link-arg=/DEBUG:NONE",        # 彻底移除调试数据生成
+  "-C", "link-arg=/OPT:REF,ICF",       # 启用链接器优化（移除无用符号）
 ]
 
 [env]

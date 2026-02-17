@@ -5,11 +5,12 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
+# 确保包含了文件读取需要的存储 feature，用于我们新增的预热代码
 windows-sys = { version = "0.61.2", features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_Foundation",
-    "Win32_Storage_FileSystem",
+    "Win32_Storage_FileSystem", # 预热读取需要
     "Win32_Security",
     "Win32_UI_WindowsAndMessaging",
 ] }
@@ -18,10 +19,9 @@ windows-sys = { version = "0.61.2", features = [
 embed-resource = "3.0.6"
 
 [profile.release]
-opt-level = "z"      # 最高内存优化
-lto = true           # 启用全局 LTO
-codegen-units = 1    # 强制单线程编译，以获得最大的全局优化空间
-panic = 'abort'      # 抛弃异常回执，减少代码膨胀
-strip = true         # 自动从二进制文件中剥离符号信息
-incremental = false  # 关闭增量编译以获得最佳优化
-
+opt-level = "z"       
+lto = true           # 全局 LTO 优化
+codegen-units = 1    # 牺牲编译时间换取极致优化
+panic = 'abort'      # 移除展开逻辑，减少二进制体积
+strip = true         # 剥离符号表，这能大幅缩短杀毒软件第一次扫描的时间
+incremental = false  # 生产版本关闭增量编译
